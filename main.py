@@ -7,11 +7,17 @@ import json
 pd.options.mode.chained_assignment = None
 
 def obter_tabelas():
+    """
+    Obtém a tabela de classificação e de jogos (já jogados e futuros), bem como gols feitos do WikiPedia
+    """
     requisicao = rq.get("https://pt.wikipedia.org/wiki/Campeonato_Brasileiro_de_Futebol_de_2024_-_S%C3%A9rie_A")
     tabelas = pd.read_html(io.StringIO(str(requisicao.text)))
     return tabelas[6], tabelas[7]
 
 def formatar_tabela_jogos(tabela_jogos, dic_para_times):
+    """
+    Formata a tabela de jogos, ajustando os nomes dos times
+    """
     tabela_jogos_ajustada = tabela_jogos.set_index(r'Casa \ Fora').unstack().reset_index()
     tabela_jogos_ajustada = tabela_jogos_ajustada.rename(columns={'level_0': "fora", r'Casa \ Fora': "casa", 0: 'resultado'})
 
@@ -26,9 +32,12 @@ def formatar_tabela_jogos(tabela_jogos, dic_para_times):
     return tabela_jogos_ajustada
 
 def obter_partidas_rodadas():
+    """
+    Obtém as partidas da rodada atual no CartolaFC e ajusta os nomes dos times para equivaler à tabela de estatísticas
+    """
     data = rq.get("https://api.cartola.globo.com/partidas").json()
 
-    partidas = [{'rodada': data['rodada']}]
+    partidas = [{'rodada': data['rodada']}, []]
     x = 0
     substituicoes ={
         'Atlético-MG':'Atlético Mineiro',
@@ -46,11 +55,14 @@ def obter_partidas_rodadas():
         if clube_casa in substituicoes:
             clube_casa = substituicoes[clube_casa]
 
-        partidas.append({'jogo': x, 'clube_casa': clube_casa, 'clube_visitante': clube_visitante})
+        partidas[1].append({'jogo': x, 'clube_casa': clube_casa, 'clube_visitante': clube_visitante})
 
     return partidas
 
 def calcular_estatisticas(tabela_jogos_realizados):
+    """"
+    Separa os gols fora e dentro de casa e relaciona para cada time do campeonato
+    """
     colunas = ['gols_casa', 'gols_fora']
     tabela_jogos_realizados[colunas] = tabela_jogos_realizados['resultado'].str.split('–', expand=True)
     tabela_jogos_realizados = tabela_jogos_realizados.drop(columns=['resultado'])
@@ -69,6 +81,16 @@ def calcular_estatisticas(tabela_jogos_realizados):
     return tabela_estatistica
 
 def calcular_probabilidade_resultados(time_casa, time_fora, tabela_estatistica):
+    """
+    Usa o método de Poison para simular os todas as probabilidades de resultados nos jogos até o 
+    máximo de 7 gols para cada time.
+
+    Usa para o time de casa: gols feitos dentro de casa * gols sofridos fora de casa do adversário
+
+    Usa para o time fora de casa: gols feitos fora de casa * gols tomados dentro de casa do time adversário
+
+    Ao final calcula a probabilidade de vitória do time da casa, empate e vitória do time de fora
+    """
     lambda_casa = (tabela_estatistica.loc[tabela_estatistica['time'] == time_casa, 'gols_feitos_casa'].iloc[0] * 
                    tabela_estatistica.loc[tabela_estatistica['time'] == time_fora, 'gols_sofridos_fora'].iloc[0])
     
@@ -92,6 +114,9 @@ def calcular_probabilidade_resultados(time_casa, time_fora, tabela_estatistica):
     return pv_casa, p_empate, pv_fora
 
 def prever_gols(time_casa, time_fora, tabela_estatistica):
+    """
+    Usando a média de gols fora e dentro de casa, calcula uma expectativa de gols para cada time.
+    """
     media_gols_casa = tabela_estatistica.loc[tabela_estatistica['time'] == time_casa, 'gols_feitos_casa'].iloc[0]
     media_gols_fora = tabela_estatistica.loc[tabela_estatistica['time'] == time_fora, 'gols_feitos_fora'].iloc[0]
 
@@ -121,7 +146,7 @@ def main():
     print("")
     print(f"RODADA: {partidas[0]['rodada']}")
 
-    for partida in partidas:
+    for partida in partidas[1]:
         jogo = partida['jogo']
         time_casa = partida['clube_casa']
         time_fora = partida['clube_visitante']
